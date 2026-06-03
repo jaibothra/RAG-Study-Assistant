@@ -1,0 +1,124 @@
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { Check, Copy, RotateCcw } from 'lucide-react'
+import type { Message } from '../types'
+import { useChatStore } from '../store/chatStore'
+import { sendMessage } from '../api/chat'
+import { streamText } from '../lib/utils'
+import SourcePills from './SourcePills'
+
+interface ChatMessageProps {
+  message: Message
+  regeneratePrompt?: string
+}
+
+export default function ChatMessage({ message, regeneratePrompt }: ChatMessageProps) {
+  const [copied, setCopied] = useState(false)
+  const isUser = message.role === 'user'
+  const {
+    addMessage,
+    updateMessage,
+    removeLastAssistantMessage,
+    setLoading,
+    setLoadingPhase,
+  } = useChatStore()
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(message.content)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handleRegenerate = async () => {
+    if (!regeneratePrompt) {
+      return
+    }
+    removeLastAssistantMessage()
+    setLoading(true)
+    setLoadingPhase('searching')
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+    setLoadingPhase('generating')
+
+    try {
+      const response = await sendMessage(regeneratePrompt)
+      const assistantId = crypto.randomUUID()
+      addMessage({
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        sources: response.sources,
+        timestamp: new Date(),
+        isStreaming: true,
+      })
+      streamText(
+        response.answer,
+        (value) => updateMessage(assistantId, { content: value }),
+        () => {
+          updateMessage(assistantId, { content: response.answer, isStreaming: false })
+          setLoading(false)
+          setLoadingPhase('idle')
+        },
+      )
+    } catch {
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: 'Something went wrong. Please try again.',
+        timestamp: new Date(),
+      })
+      setLoading(false)
+      setLoadingPhase('idle')
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+    >
+      {isUser ? (
+        <div className="max-w-[72%] rounded-2xl border border-[#2a2a35] bg-[#171722] px-4 py-3 shadow-lg shadow-black/20">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#f4f4f5]">
+            {message.content}
+          </p>
+        </div>
+      ) : (
+        <div className="w-full max-w-[88%] rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#e4e4e7]">
+            {message.content}
+            {message.isStreaming ? (
+              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-[#7c5cff]" />
+            ) : null}
+          </p>
+          {message.sources && message.sources.length > 0 ? (
+            <SourcePills sources={message.sources} />
+          ) : null}
+          {!message.isStreaming ? (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                className="inline-flex items-center gap-1 rounded-lg border border-[#2a2a35] px-2.5 py-1 text-xs text-[#a1a1aa] transition-all hover:border-[#7c5cff] hover:text-[#e4e4e7]"
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+              {regeneratePrompt ? (
+                <button
+                  type="button"
+                  onClick={() => void handleRegenerate()}
+                  className="inline-flex items-center gap-1 rounded-lg border border-[#2a2a35] px-2.5 py-1 text-xs text-[#a1a1aa] transition-all hover:border-[#7c5cff] hover:text-[#e4e4e7]"
+                >
+                  <RotateCcw size={12} />
+                  Regenerate
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </motion.div>
+  )
+}

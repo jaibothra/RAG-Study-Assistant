@@ -1,0 +1,54 @@
+import { BookOpen, X } from 'lucide-react'
+import DocumentList from './DocumentList'
+import FileUpload from './FileUpload'
+
+interface SidebarProps {
+  mobileOpen: boolean
+  onMobileClose: () => void
+}
+
+export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
+  return (
+    <>
+      <div
+        className={`fixed inset-0 z-30 bg-black/50 transition-opacity lg:hidden ${
+          mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={onMobileClose}
+      />
+      <aside
+        className={`fixed top-0 left-0 z-40 flex h-screen w-[255px] shrink-0 flex-col border-r border-[#2a2a35] bg-[#111118] p-4 transition-transform duration-300 lg:static lg:translate-x-0 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-[#171722] p-1.5">
+                <BookOpen size={16} className="text-[#7c5cff]" />
+              </div>
+              <h1 className="text-lg font-bold tracking-tight text-[#f4f4f5]">StudyAI</h1>
+            </div>
+            <p className="mt-1 text-[11px] text-[#71717a]">Your AI learning companion</p>
+          </div>
+          <button
+            type="button"
+            onClick={onMobileClose}
+            className="rounded-lg border border-[#2a2a35] p-1.5 text-[#a1a1aa] lg:hidden"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <FileUpload />
+        <div className="my-3 border-t border-[#2a2a35]" />
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          <p className="text-[10px] font-semibold tracking-wide text-[#71717a] uppercase">
+            Documents
+          </p>
+          <DocumentList />
+        </div>
+      </aside>
+    </>
+  )
+}
