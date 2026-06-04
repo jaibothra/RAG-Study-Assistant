@@ -1,6 +1,10 @@
+import json
 import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -14,6 +18,8 @@ from src.vector_store import FaissVectorStore
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+SPACES_DIR = Path("spaces")
+SPACES_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_EXTENSIONS = {".pdf", ".docx", ".csv", ".txt", ".xlsx"}
 
 
@@ -63,6 +69,31 @@ class ErrorResponse(BaseModel):
     error: str
 
 
+class CreateSpaceRequest(BaseModel):
+    name: str
+
+
+class UpdateSpaceRequest(BaseModel):
+    name: str
+
+
+class SpaceResponse(BaseModel):
+    id: str
+    name: str
+    created_at: str
+
+
+class SpaceListItem(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    document_count: int
+
+
+class DeleteSpaceResponse(BaseModel):
+    deleted: str
+
+
 app = FastAPI(title="RAG API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -73,24 +104,75 @@ app.add_middleware(
 )
 
 
-def _rebuild_index() -> None:
-    documents = load_all_documents(str(DATA_DIR))
+def _rebuild_index(data_dir: Path = DATA_DIR, store_dir: Path = Path(DEFAULT_STORE_DIR)) -> None:
+    documents = load_all_documents(str(data_dir))
     if not documents:
         for index_file in ("faiss.index", "metadata.pkl"):
-            path = Path(DEFAULT_STORE_DIR) / index_file
+            path = store_dir / index_file
             if path.exists():
                 path.unlink()
         return
-    store = FaissVectorStore(str(DEFAULT_STORE_DIR))
+    store = FaissVectorStore(str(store_dir))
     store.build_from_documents(documents)
 
 
-def _safe_destination(name: str) -> Path:
+def _safe_destination(name: str, base_dir: Path = DATA_DIR) -> Path:
     safe_name = Path(name).name
-    destination = DATA_DIR / safe_name
-    if destination.parent.resolve() != DATA_DIR.resolve():
+    destination = base_dir / safe_name
+    if destination.parent.resolve() != base_dir.resolve():
         raise HTTPException(status_code=400, detail="Invalid filename")
     return destination
+
+
+def _space_root(space_id: str) -> Path:
+    root = SPACES_DIR / space_id
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Space not found")
+    return root
+
+
+def _space_documents_dir(space_id: str) -> Path:
+    docs = _space_root(space_id) / "documents"
+    docs.mkdir(parents=True, exist_ok=True)
+    return docs
+
+
+def _space_faiss_dir(space_id: str) -> Path:
+    index_dir = _space_root(space_id) / "faiss_index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    return index_dir
+
+
+def _read_space_metadata(space_id: str) -> dict:
+    meta_path = _space_root(space_id) / "metadata.json"
+    if not meta_path.is_file():
+        raise HTTPException(status_code=404, detail="Space metadata not found")
+    return json.loads(meta_path.read_text(encoding="utf-8"))
+
+
+def _write_space_metadata(space_id: str, metadata: dict) -> None:
+    meta_path = _space_root(space_id) / "metadata.json"
+    meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def _space_response(space_id: str) -> SpaceResponse:
+    meta = _read_space_metadata(space_id)
+    return SpaceResponse(id=meta["id"], name=meta["name"], created_at=meta["created_at"])
+
+
+def _document_count(space_id: str) -> int:
+    docs_dir = _space_root(space_id) / "documents"
+    if not docs_dir.is_dir():
+        return 0
+    return sum(
+        1
+        for file_path in docs_dir.iterdir()
+        if file_path.is_file() and not file_path.name.startswith(".")
+    )
+
+
+def _rebuild_space_index(space_id: str) -> None:
+    _rebuild_index(_space_documents_dir(space_id), _space_faiss_dir(space_id))
 
 
 @app.exception_handler(HTTPException)
@@ -106,6 +188,195 @@ async def validation_exception_handler(_, exc: RequestValidationError):
 @app.exception_handler(Exception)
 async def generic_exception_handler(_, exc: Exception):
     return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/spaces", response_model=SpaceResponse, responses={400: {"model": ErrorResponse}})
+async def create_space(payload: CreateSpaceRequest):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Space name cannot be empty")
+
+    space_id = str(uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    space_dir = SPACES_DIR / space_id
+    (space_dir / "documents").mkdir(parents=True, exist_ok=True)
+    (space_dir / "faiss_index").mkdir(parents=True, exist_ok=True)
+    metadata = {"id": space_id, "name": name, "created_at": created_at}
+    (space_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return SpaceResponse(id=space_id, name=name, created_at=created_at)
+
+
+@app.get("/spaces", response_model=List[SpaceListItem])
+async def list_spaces():
+    spaces: List[SpaceListItem] = []
+    if not SPACES_DIR.is_dir():
+        return spaces
+
+    for space_dir in sorted(SPACES_DIR.iterdir()):
+        if not space_dir.is_dir():
+            continue
+        meta_path = space_dir / "metadata.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        space_id = meta.get("id", space_dir.name)
+        spaces.append(
+            SpaceListItem(
+                id=space_id,
+                name=meta.get("name", "Untitled"),
+                created_at=meta.get("created_at", ""),
+                document_count=_document_count(space_id),
+            )
+        )
+    return spaces
+
+
+@app.delete(
+    "/spaces/{space_id}",
+    response_model=DeleteSpaceResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def delete_space(space_id: str):
+    space_dir = _space_root(space_id)
+    shutil.rmtree(space_dir)
+    return DeleteSpaceResponse(deleted=space_id)
+
+
+@app.patch(
+    "/spaces/{space_id}",
+    response_model=SpaceResponse,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def update_space(space_id: str, payload: UpdateSpaceRequest):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Space name cannot be empty")
+
+    metadata = _read_space_metadata(space_id)
+    metadata["name"] = name
+    _write_space_metadata(space_id, metadata)
+    return _space_response(space_id)
+
+
+@app.post(
+    "/spaces/{space_id}/upload",
+    response_model=UploadResponse,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def upload_space_documents(space_id: str, files: List[UploadFile] = File(...)):
+    docs_dir = _space_documents_dir(space_id)
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    uploaded: List[str] = []
+    for file in files:
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in SUPPORTED_EXTENSIONS or ext not in UPLOAD_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file.filename}",
+            )
+        destination = _safe_destination(file.filename or "", docs_dir)
+        content = await file.read()
+        destination.write_bytes(content)
+        uploaded.append(destination.name)
+
+    _rebuild_space_index(space_id)
+    return UploadResponse(uploaded=uploaded)
+
+
+@app.get(
+    "/spaces/{space_id}/documents",
+    response_model=DocumentsResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def list_space_documents(space_id: str):
+    docs_dir = _space_documents_dir(space_id)
+    documents: List[DocumentItem] = []
+    for file_path in sorted(docs_dir.glob("*")):
+        if file_path.is_file() and not file_path.name.startswith("."):
+            documents.append(DocumentItem(name=file_path.name, size=file_path.stat().st_size))
+    return DocumentsResponse(documents=documents)
+
+
+@app.delete(
+    "/spaces/{space_id}/documents/{filename}",
+    response_model=DeleteResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def delete_space_document(space_id: str, filename: str):
+    docs_dir = _space_documents_dir(space_id)
+    target = _safe_destination(filename, docs_dir)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    os.remove(target)
+    _rebuild_space_index(space_id)
+    return DeleteResponse(deleted=target.name)
+
+
+@app.post(
+    "/spaces/{space_id}/chat",
+    response_model=ChatResponse,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def chat_in_space(space_id: str, payload: ChatRequest):
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    _space_root(space_id)
+    docs_dir = _space_documents_dir(space_id)
+    faiss_dir = _space_faiss_dir(space_id)
+
+    rag = RAGSearch(data_dir=docs_dir, persist_dir=faiss_dir)
+    results = rag.search(message, top_k=5)
+    answer = rag.search_and_answer(message, top_k=5)
+
+    sources: List[str] = []
+    for item in results:
+        metadata = item.get("metadata") or {}
+        source_path = metadata.get("source")
+        if source_path:
+            source_name = Path(source_path).name
+            if source_name not in sources:
+                sources.append(source_name)
+
+    return ChatResponse(answer=answer, sources=sources)
+
+
+@app.get(
+    "/spaces/{space_id}/documents/{filename}/preview",
+    response_model=DocumentPreviewResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def preview_space_document(space_id: str, filename: str):
+    target = _safe_destination(filename, _space_documents_dir(space_id))
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    excerpt, page_count = _build_preview_excerpt(target)
+    return DocumentPreviewResponse(
+        name=target.name,
+        size=target.stat().st_size,
+        extension=target.suffix.lower(),
+        excerpt=excerpt,
+        page_count=page_count,
+    )
+
+
+@app.get(
+    "/spaces/{space_id}/documents/{filename}/file",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_space_document_file(space_id: str, filename: str):
+    target = _safe_destination(filename, _space_documents_dir(space_id))
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(target, filename=target.name)
 
 
 @app.post("/upload", response_model=UploadResponse, responses={400: {"model": ErrorResponse}})

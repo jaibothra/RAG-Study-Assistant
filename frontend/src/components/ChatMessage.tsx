@@ -3,7 +3,8 @@ import { motion } from 'framer-motion'
 import { Check, Copy, RotateCcw } from 'lucide-react'
 import type { Message } from '../types'
 import { useChatStore } from '../store/chatStore'
-import { sendMessage } from '../api/chat'
+import { chatInSpace } from '../api/spaces'
+import { useSpaceStore } from '../store/spaceStore'
 import { streamText } from '../lib/utils'
 import SourcePills from './SourcePills'
 
@@ -14,6 +15,7 @@ interface ChatMessageProps {
 
 export default function ChatMessage({ message, regeneratePrompt }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
+  const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
   const isUser = message.role === 'user'
   const {
     addMessage,
@@ -30,7 +32,7 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
   }
 
   const handleRegenerate = async () => {
-    if (!regeneratePrompt) {
+    if (!regeneratePrompt || !activeSpaceId) {
       return
     }
     removeLastAssistantMessage()
@@ -40,7 +42,7 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
     setLoadingPhase('generating')
 
     try {
-      const response = await sendMessage(regeneratePrompt)
+      const response = await chatInSpace(activeSpaceId, regeneratePrompt)
       const assistantId = crypto.randomUUID()
       addMessage({
         id: assistantId,
@@ -96,15 +98,11 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
             <SourcePills sources={message.sources} />
           ) : null}
           {!message.isStreaming ? (
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleCopy()}
-                className="inline-flex items-center gap-1 rounded-lg border border-[#2a2a35] px-2.5 py-1 text-xs text-[#a1a1aa] transition-all hover:border-[#7c5cff] hover:text-[#e4e4e7]"
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+            <div
+              className={`mt-3 flex items-center gap-2 ${
+                regeneratePrompt ? 'justify-between' : 'justify-end'
+              }`}
+            >
               {regeneratePrompt ? (
                 <button
                   type="button"
@@ -115,6 +113,14 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
                   Regenerate
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                className="inline-flex items-center gap-1 rounded-lg border border-[#2a2a35] px-2.5 py-1 text-xs text-[#a1a1aa] transition-all hover:border-[#7c5cff] hover:text-[#e4e4e7]"
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? 'Copied' : 'Copy Response'}
+              </button>
             </div>
           ) : null}
         </div>

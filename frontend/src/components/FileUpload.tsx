@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, UploadCloud } from 'lucide-react'
-import { uploadDocuments } from '../api/documents'
+import { uploadToSpace } from '../api/spaces'
 
 type UploadStatus = 'uploading' | 'success' | 'error'
 
@@ -11,19 +11,28 @@ interface UploadItem {
   status: UploadStatus
 }
 
-export default function FileUpload() {
+interface FileUploadProps {
+  spaceId: string
+}
+
+export default function FileUpload({ spaceId }: FileUploadProps) {
   const queryClient = useQueryClient()
   const [uploads, setUploads] = useState<UploadItem[]>([])
 
+  useEffect(() => {
+    setUploads([])
+  }, [spaceId])
+
   const mutation = useMutation({
-    mutationFn: uploadDocuments,
+    mutationFn: (files: File[]) => uploadToSpace(spaceId, files),
     onSuccess: (response) => {
       setUploads((prev) =>
         prev.map((item) =>
           response.uploaded.includes(item.name) ? { ...item, status: 'success' } : item,
         ),
       )
-      void queryClient.invalidateQueries({ queryKey: ['documents'] })
+      void queryClient.invalidateQueries({ queryKey: ['documents', spaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['spaces'] })
     },
     onError: () => {
       setUploads((prev) => prev.map((item) => ({ ...item, status: 'error' })))

@@ -2,8 +2,9 @@ import { useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { motion } from 'framer-motion'
 import { Send } from 'lucide-react'
-import { sendMessage } from '../api/chat'
+import { chatInSpace } from '../api/spaces'
 import { useChatStore } from '../store/chatStore'
+import { useSpaceStore } from '../store/spaceStore'
 import { streamText } from '../lib/utils'
 import QuickActionChips from './QuickActionChips'
 
@@ -13,11 +14,17 @@ interface ChatComposerProps {
 
 export default function ChatComposer({ centered }: ChatComposerProps) {
   const [input, setInput] = useState('')
+  const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
   const { addMessage, updateMessage, isLoading, setLoading, setLoadingPhase } = useChatStore()
+
+  const canChat = Boolean(activeSpaceId)
+  const placeholder = canChat
+    ? 'Ask anything about your documents...'
+    : 'Select a space to start chatting.'
 
   const submitCurrent = async () => {
     const content = input.trim()
-    if (!content || isLoading) {
+    if (!content || isLoading || !activeSpaceId) {
       return
     }
 
@@ -35,7 +42,7 @@ export default function ChatComposer({ centered }: ChatComposerProps) {
     setLoadingPhase('generating')
 
     try {
-      const response = await sendMessage(content)
+      const response = await chatInSpace(activeSpaceId, content)
       const assistantId = crypto.randomUUID()
       addMessage({
         id: assistantId,
@@ -95,21 +102,21 @@ export default function ChatComposer({ centered }: ChatComposerProps) {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything about your documents..."
-              disabled={isLoading}
+              placeholder={placeholder}
+              disabled={isLoading || !canChat}
               rows={1}
-              className="max-h-32 min-h-[36px] flex-1 resize-none border-0 bg-transparent py-2 text-sm leading-[36px] text-[#f4f4f5] outline-none placeholder:text-[#71717a]"
+              className="max-h-32 min-h-[36px] flex-1 resize-none border-0 bg-transparent py-2 text-sm leading-[36px] text-[#f4f4f5] outline-none placeholder:text-[#71717a] disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || !input.trim() || !canChat}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#7c5cff] text-white transition-all hover:scale-105 hover:bg-[#6b4df5] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={16} />
             </button>
           </div>
         </form>
-        {centered ? <QuickActionChips onSelect={setInput} /> : null}
+        {centered && canChat ? <QuickActionChips onSelect={setInput} /> : null}
       </div>
     </motion.div>
   )

@@ -2,18 +2,20 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Search, X } from 'lucide-react'
-import { getDocumentFileUrl, getDocumentPreview } from '../api/documents'
+import { getSpaceDocumentFileUrl, getSpaceDocumentPreview } from '../api/spaces'
 import { formatSize, getFileExtension } from '../lib/utils'
+import { useSpaceStore } from '../store/spaceStore'
 import { useUiStore } from '../store/uiStore'
 
 export default function DocumentPreviewPanel() {
   const { previewOpen, selectedDocument, closePreview } = useUiStore()
+  const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
   const [searchQuery, setSearchQuery] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['document-preview', selectedDocument],
-    queryFn: () => getDocumentPreview(selectedDocument as string),
-    enabled: previewOpen && Boolean(selectedDocument),
+    queryKey: ['document-preview', activeSpaceId, selectedDocument],
+    queryFn: () => getSpaceDocumentPreview(activeSpaceId as string, selectedDocument as string),
+    enabled: previewOpen && Boolean(selectedDocument) && Boolean(activeSpaceId),
   })
 
   const filteredExcerpt = useMemo(() => {
@@ -33,7 +35,7 @@ export default function DocumentPreviewPanel() {
 
   return (
     <AnimatePresence>
-      {previewOpen && selectedDocument ? (
+      {previewOpen && selectedDocument && activeSpaceId ? (
         <>
           <motion.button
             type="button"
@@ -95,7 +97,7 @@ export default function DocumentPreviewPanel() {
               {!isLoading && data && isPdf ? (
                 <iframe
                   title={data.name}
-                  src={getDocumentFileUrl(data.name)}
+                  src={getSpaceDocumentFileUrl(activeSpaceId, data.name)}
                   className="h-[70vh] w-full rounded-xl border border-[#2a2a35] bg-white"
                 />
               ) : null}

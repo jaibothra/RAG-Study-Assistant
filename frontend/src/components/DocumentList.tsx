@@ -1,32 +1,32 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteDocument, getDocuments, renameDocument } from '../api/documents'
+import { deleteSpaceDocument, getSpaceDocuments } from '../api/spaces'
 import { formatSize, getFileEmoji } from '../lib/utils'
 import { useUiStore } from '../store/uiStore'
 import DocumentMenu from './DocumentMenu'
 
-export default function DocumentList() {
+interface DocumentListProps {
+  spaceId: string
+}
+
+export default function DocumentList({ spaceId }: DocumentListProps) {
   const queryClient = useQueryClient()
   const { selectedDocument, setSelectedDocument, openPreview } = useUiStore()
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null)
+  const [confirmDeleteFor, setConfirmDeleteFor] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['documents'],
-    queryFn: getDocuments,
+    queryKey: ['documents', spaceId],
+    queryFn: () => getSpaceDocuments(spaceId),
+    enabled: Boolean(spaceId),
   })
 
   const deleteMutation = useMutation({
-    mutationFn: deleteDocument,
+    mutationFn: (filename: string) => deleteSpaceDocument(spaceId, filename),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['documents'] })
-    },
-  })
-
-  const renameMutation = useMutation({
-    mutationFn: ({ filename, newName }: { filename: string; newName: string }) =>
-      renameDocument(filename, newName),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['documents'] })
+      setConfirmDeleteFor(null)
+      void queryClient.invalidateQueries({ queryKey: ['documents', spaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['spaces'] })
     },
   })
 
@@ -74,27 +74,45 @@ export default function DocumentList() {
               <p className="truncate text-sm font-medium text-[#f4f4f5]">{document.name}</p>
               <p className="text-xs text-[#a1a1aa]">{formatSize(document.size)}</p>
             </div>
-            <DocumentMenu
-              open={menuOpenFor === document.name}
-              onToggle={() =>
-                setMenuOpenFor((current) =>
-                  current === document.name ? null : document.name,
-                )
-              }
-              onClose={() => setMenuOpenFor(null)}
-              onOpen={() => openPreview(document.name)}
-              onRename={() => {
-                const newName = window.prompt('Rename file', document.name)
-                if (newName && newName !== document.name) {
-                  renameMutation.mutate({ filename: document.name, newName })
+            {confirmDeleteFor === document.name ? (
+              <div
+                className="flex shrink-0 items-center gap-1 text-[10px]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span className="text-[#a1a1aa]">Delete?</span>
+                <button
+                  type="button"
+                  onClick={() => deleteMutation.mutate(document.name)}
+                  className="rounded px-1 text-red-400 hover:bg-[#111118]"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteFor(null)}
+                  className="rounded px-1 text-[#a1a1aa] hover:bg-[#111118]"
+                >
+                  No
+                </button>
+              </div>
+            ) : (
+              <DocumentMenu
+                open={menuOpenFor === document.name}
+                onToggle={() =>
+                  setMenuOpenFor((current) =>
+                    current === document.name ? null : document.name,
+                  )
                 }
-              }}
-              onDelete={() => {
-                if (window.confirm(`Delete ${document.name}?`)) {
-                  deleteMutation.mutate(document.name)
-                }
-              }}
-            />
+                onClose={() => setMenuOpenFor(null)}
+                onOpen={() => openPreview(document.name)}
+                onRename={() => {}}
+                showRename={false}
+                onDelete={() => {
+                  setMenuOpenFor(null)
+                  setConfirmDeleteFor(document.name)
+                }}
+              />
+            )}
           </div>
         )
       })}

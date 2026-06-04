@@ -1,3 +1,10 @@
+export interface StudySpace {
+  id: string
+  name: string
+  created_at: string
+  document_count: number
+}
+
 export interface Document {
   name: string
   size: number

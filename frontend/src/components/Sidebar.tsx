@@ -1,13 +1,26 @@
 import { BookOpen, X } from 'lucide-react'
 import DocumentList from './DocumentList'
 import FileUpload from './FileUpload'
+import StudySpacesSection from './StudySpacesSection'
+import { useSpaceStore } from '../store/spaceStore'
 
 interface SidebarProps {
   mobileOpen: boolean
   onMobileClose: () => void
+  showCreateSpaceInput: boolean
+  onShowCreateSpaceInput: () => void
+  onHideCreateSpaceInput: () => void
 }
 
-export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
+export default function Sidebar({
+  mobileOpen,
+  onMobileClose,
+  showCreateSpaceInput,
+  onShowCreateSpaceInput,
+  onHideCreateSpaceInput,
+}: SidebarProps) {
+  const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+
   return (
     <>
       <div
@@ -40,13 +53,26 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           </button>
         </div>
 
-        <FileUpload />
-        <div className="my-3 border-t border-[#2a2a35]" />
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          <p className="text-[10px] font-semibold tracking-wide text-[#71717a] uppercase">
-            Documents
-          </p>
-          <DocumentList />
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+          <StudySpacesSection
+            showCreateInput={showCreateSpaceInput}
+            onShowCreateInput={onShowCreateSpaceInput}
+            onHideCreateInput={onHideCreateSpaceInput}
+          />
+
+          <div className="border-t border-[#2a2a35] pt-3">
+            <p className="mb-2 text-[10px] font-semibold tracking-wide text-[#71717a] uppercase">
+              Documents
+            </p>
+            {!activeSpaceId ? (
+              <p className="text-xs text-[#71717a]">Select a space to see documents.</p>
+            ) : (
+              <div className="space-y-2">
+                <FileUpload spaceId={activeSpaceId} />
+                <DocumentList spaceId={activeSpaceId} />
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     </>

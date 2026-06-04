@@ -8,6 +8,7 @@ interface DocumentMenuProps {
   onOpen: () => void
   onRename: () => void
   onDelete: () => void
+  showRename?: boolean
 }
 
 export default function DocumentMenu({
@@ -17,6 +18,7 @@ export default function DocumentMenu({
   onOpen,
   onRename,
   onDelete,
+  showRename = true,
 }: DocumentMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -57,16 +59,18 @@ export default function DocumentMenu({
           >
             Open
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              onRename()
-              onClose()
-            }}
-            className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#e4e4e7] hover:bg-[#111118]"
-          >
-            Rename
-          </button>
+          {showRename ? (
+            <button
+              type="button"
+              onClick={() => {
+                onRename()
+                onClose()
+              }}
+              className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#e4e4e7] hover:bg-[#111118]"
+            >
+              Rename
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
