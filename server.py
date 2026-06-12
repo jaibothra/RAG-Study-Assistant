@@ -13,7 +13,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from src.data_loader import SUPPORTED_EXTENSIONS, load_all_documents
-from src.rag import DEFAULT_STORE_DIR, RAGSearch
+from src.memory import (
+    add_message,
+    clear_history,
+    clear_nudge,
+    get_last_nudge,
+    get_recent_history,
+    set_last_nudge,
+)
+from src.rag import DEFAULT_STORE_DIR, RAGSearch, answer_question
 from src.vector_store import FaissVectorStore
 
 DATA_DIR = Path("data")
@@ -92,6 +100,10 @@ class SpaceListItem(BaseModel):
 
 class DeleteSpaceResponse(BaseModel):
     deleted: str
+
+
+class ClearHistoryResponse(BaseModel):
+    cleared: str
 
 
 app = FastAPI(title="RAG API", version="1.0.0")
@@ -332,9 +344,27 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
     docs_dir = _space_documents_dir(space_id)
     faiss_dir = _space_faiss_dir(space_id)
 
+    history = get_recent_history(space_id)
+    last_nudge = get_last_nudge(space_id)
     rag = RAGSearch(data_dir=docs_dir, persist_dir=faiss_dir)
     results = rag.search(message, top_k=5)
-    answer = rag.search_and_answer(message, top_k=5)
+    answer = answer_question(
+        message,
+        str(faiss_dir),
+        conversation_history=history,
+        last_nudge=last_nudge,
+    )
+
+    # Extract nudge from the response and store it explicitly for the next turn.
+    # The nudge is always the last paragraph (separated by a blank line).
+    parts = answer.split("\n\n")
+    if len(parts) >= 2:
+        set_last_nudge(space_id, parts[-1].strip())
+    else:
+        clear_nudge(space_id)
+
+    add_message(space_id, "user", message)
+    add_message(space_id, "assistant", answer)
 
     sources: List[str] = []
     for item in results:
@@ -346,6 +376,17 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
                 sources.append(source_name)
 
     return ChatResponse(answer=answer, sources=sources)
+
+
+@app.delete(
+    "/spaces/{space_id}/history",
+    response_model=ClearHistoryResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def clear_space_history(space_id: str):
+    _space_root(space_id)
+    clear_history(space_id)
+    return ClearHistoryResponse(cleared=space_id)
 
 
 @app.get(

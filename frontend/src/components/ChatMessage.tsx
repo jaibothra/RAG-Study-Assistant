@@ -13,10 +13,22 @@ interface ChatMessageProps {
   regeneratePrompt?: string
 }
 
+function splitAnswerAndNudge(content: string): { answer: string; nudge: string | null } {
+  const parts = content.split('\n\n')
+  if (parts.length >= 2) {
+    const nudge = parts[parts.length - 1].trim()
+    const answer = parts.slice(0, -1).join('\n\n').trimEnd()
+    return { answer, nudge }
+  }
+  return { answer: content, nudge: null }
+}
+
 export default function ChatMessage({ message, regeneratePrompt }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
   const isUser = message.role === 'user'
+  const { answer, nudge } =
+    !isUser && !message.isStreaming ? splitAnswerAndNudge(message.content) : { answer: message.content, nudge: null as string | null }
   const {
     addMessage,
     updateMessage,
@@ -89,11 +101,12 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
       ) : (
         <div className="w-full max-w-[88%] rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20">
           <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#e4e4e7]">
-            {message.content}
+            {answer}
             {message.isStreaming ? (
               <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-[#7c5cff]" />
             ) : null}
           </p>
+          {nudge ? <p className="font-semibold text-[#b3bbc8] mt-5 block text-sm">{nudge}</p> : null}
           {message.sources && message.sources.length > 0 ? (
             <SourcePills sources={message.sources} />
           ) : null}

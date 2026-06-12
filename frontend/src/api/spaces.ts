@@ -78,6 +78,10 @@ export const deleteSpaceDocument = async (
   )
 }
 
+export const clearSpaceHistory = async (spaceId: string): Promise<void> => {
+  await apiClient.delete(`/spaces/${encodeURIComponent(spaceId)}/history`)
+}
+
 export const chatInSpace = async (spaceId: string, message: string): Promise<ChatResponse> => {
   const response = await apiClient.post<ChatResponse>(
     `/spaces/${encodeURIComponent(spaceId)}/chat`,

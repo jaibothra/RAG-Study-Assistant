@@ -1,11 +1,28 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { clearSpaceHistory } from '../api/spaces'
 import { useChatStore } from '../store/chatStore'
+import { useSpaceStore } from '../store/spaceStore'
 import ChatMessage from './ChatMessage'
 import ThinkingIndicator from './ThinkingIndicator'
 
 export default function ChatWindow() {
-  const { messages, isLoading } = useChatStore()
+  const { messages, isLoading, clearMessages } = useChatStore()
+  const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const [clearing, setClearing] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+
+  const handleClearChat = async () => {
+    if (!activeSpaceId || clearing) {
+      return
+    }
+    setClearing(true)
+    try {
+      await clearSpaceHistory(activeSpaceId)
+      clearMessages()
+    } finally {
+      setClearing(false)
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -14,7 +31,17 @@ export default function ChatWindow() {
   const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-6 md:px-8">
+    <div className="relative h-full overflow-y-auto px-4 py-6 md:px-8">
+      {messages.length > 0 && activeSpaceId ? (
+        <button
+          type="button"
+          onClick={() => void handleClearChat()}
+          disabled={clearing || isLoading}
+          className="absolute right-4 top-3 z-10 text-xs text-[#71717a] transition-colors hover:text-[#a1a1aa] disabled:opacity-50 md:right-8"
+        >
+          {clearing ? 'Clearing…' : 'Clear chat'}
+        </button>
+      ) : null}
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         {messages.map((message, index) => {
           const isLastAssistant =
