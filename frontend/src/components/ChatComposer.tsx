@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Send } from 'lucide-react'
 import { chatInSpace } from '../api/spaces'
 import { useChatStore } from '../store/chatStore'
+import { useSessionStore } from '../store/sessionStore'
 import { useSpaceStore } from '../store/spaceStore'
 import { streamText } from '../lib/utils'
 import QuickActionChips from './QuickActionChips'
@@ -13,8 +15,13 @@ interface ChatComposerProps {
 }
 
 export default function ChatComposer({ centered }: ChatComposerProps) {
+  const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const activeSessionId = useSessionStore((state) =>
+    activeSpaceId ? state.getActiveSessionId(activeSpaceId) : null,
+  )
+  const setActiveSession = useSessionStore((state) => state.setActiveSession)
   const { addMessage, updateMessage, isLoading, setLoading, setLoadingPhase } = useChatStore()
 
   const canChat = Boolean(activeSpaceId)
@@ -42,7 +49,9 @@ export default function ChatComposer({ centered }: ChatComposerProps) {
     setLoadingPhase('generating')
 
     try {
-      const response = await chatInSpace(activeSpaceId, content)
+      const response = await chatInSpace(activeSpaceId, content, activeSessionId)
+      setActiveSession(activeSpaceId, response.session_id)
+      void queryClient.invalidateQueries({ queryKey: ['sessions', activeSpaceId] })
       const assistantId = crypto.randomUUID()
       addMessage({
         id: assistantId,

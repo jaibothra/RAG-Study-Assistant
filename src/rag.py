@@ -39,6 +39,8 @@ AFFIRMATIVE = {
     "yes please",
     "do it",
     "do that",
+    "let's go",
+    "go for it",
     "yeah",
     "yep",
     "alright",
@@ -47,7 +49,105 @@ AFFIRMATIVE = {
     "yes please do that",
     "sounds good",
     "let's do it",
+    "yes that",
+    "that one",
+    "the first one",
+    "the second one",
+    "tell me",
+    "explain",
+    "show me",
+    "walk me through it",
 }
+
+
+CONVERSATIONAL_PATTERNS = {
+    # Greetings
+    "hi",
+    "hello",
+    "hey",
+    "hiya",
+    "howdy",
+    "hi there",
+    "hello there",
+    # Acknowledgements
+    "thanks",
+    "thank you",
+    "thank you so much",
+    "thanks a lot",
+    "cheers",
+    "got it",
+    "i see",
+    "understood",
+    "makes sense",
+    "cool",
+    "great",
+    "awesome",
+    "nice",
+    "good",
+    "noted",
+    # Conversation enders
+    "bye",
+    "goodbye",
+    "see you",
+    "that's all",
+    "that's it",
+    "i'm done",
+    "done",
+    "stop",
+    "exit",
+    # Filler
+    "lol",
+    "haha",
+    "interesting",
+    "wow",
+    "oh",
+    "ah",
+    "hmm",
+}
+
+
+def is_conversational(message: str) -> bool:
+    """
+    Returns True if the message is purely conversational and does not
+    warrant a vector store retrieval. These messages should be handled
+    directly by the LLM without RAG context.
+    """
+    normalized = message.strip().lower().rstrip(".,!?")
+    return normalized in CONVERSATIONAL_PATTERNS
+
+
+def answer_conversational(message: str, conversation_history: List[Dict]) -> str:
+    """
+    Handle purely conversational messages without vector store retrieval.
+    Responds naturally as a tutor would between teaching moments.
+    """
+    history_text = ""
+    if conversation_history:
+        history_text = "Recent conversation context:\n" + "\n".join(
+            [
+                f"{m['role'].upper()}: {m['content'][:200]}"
+                for m in conversation_history[-4:]
+            ]
+        )
+
+    prompt = f"""{history_text}
+
+Student's message: "{message}"
+
+You are a friendly study tutor. Respond naturally and briefly to this
+conversational message. Do not launch into teaching unless the student
+asks. Do not reference document content. Just respond like a human tutor
+would between lessons — warm but concise, one or two sentences maximum.
+Do not add a follow-up nudge to conversational responses."""
+
+    groq_client = _get_groq_client()
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100,
+        temperature=0.8,
+    )
+    return response.choices[0].message.content.strip()
 
 
 def rewrite_query(
@@ -205,10 +305,19 @@ Critical rules about voice and role:
   phrase that attributes the document content to the student.
 - You are the tutor. The student is learning. Speak as a teacher explaining
   to a learner — not as someone summarising what the learner already knows.
+- You have access to conversation history from this session. Never claim
+  this is "the beginning of our conversation" or that you have no memory
+  of previous exchanges. If history exists, you have it. Use it confidently.
 - Never summarise or recap retrieved content as bullet points unless the
   student explicitly asks for a summary. When the student says "yes go ahead"
   or accepts your offer, follow through on the specific thing you offered to
   explain — do not summarise what was already discussed.
+- When the student accepts your follow-up offer ("sure", "yes go ahead" etc.)
+  and you have been given a specific topic to explain, focus entirely on
+  explaining that topic clearly. Do not summarise or narrate retrieved document
+  content as bullet points. Do not say "the material covers" or "the context
+  discusses." Teach the concept directly as a tutor would, using the retrieved
+  content as your knowledge source — not as text to be recited.
 - Use "the material covers", "according to your notes", "the concept here is"
   — never "you covered", "you explained", "you noted".
 

@@ -1,47 +1,134 @@
 from typing import Dict, List, Optional
 
-# swap this dict with Supabase calls later
-# Key: space_id, Value: list of message dicts
-_store: Dict[str, List[Dict]] = {}
+from src.supabase_client import get_supabase
 
-# swap this dict with Supabase calls later
-# Key: space_id, Value: the nudge sentence from the last assistant response
+# ─── In-memory nudge store (ephemeral, intentionally not persisted) ──────────
+# Nudges are single-turn state — no value in persisting across restarts
 _last_nudge: Dict[str, str] = {}
 
 
-def get_history(space_id: str) -> List[Dict]:
-    """Return conversation history for a space. Returns empty list if none."""
-    return _store.get(space_id, [])
+# ─── Session management ───────────────────────────────────────────────────────
+def create_session(space_id: str, title: str = "New Session") -> str:
+    """Create a new session in Supabase. Returns the new session ID."""
+    sb = get_supabase()
+    result = sb.table("sessions").insert({"space_id": space_id, "title": title}).execute()
+    return result.data[0]["id"]
 
 
-def add_message(space_id: str, role: str, content: str) -> None:
-    """Append a single message to a space's history."""
-    if space_id not in _store:
-        _store[space_id] = []
-    _store[space_id].append({"role": role, "content": content})
+def get_sessions(space_id: str) -> List[Dict]:
+    """Return all sessions for a space ordered by most recent first."""
+    sb = get_supabase()
+    result = (
+        sb.table("sessions")
+        .select("id, title, created_at, updated_at")
+        .eq("space_id", space_id)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return result.data
 
 
-def clear_history(space_id: str) -> None:
-    """Clear all history and the stored nudge for a space."""
-    _store[space_id] = []
-    clear_nudge(space_id)
+def session_belongs_to_space(session_id: str, space_id: str) -> bool:
+    """Return True when the session exists and belongs to the given space."""
+    sb = get_supabase()
+    result = (
+        sb.table("sessions")
+        .select("id")
+        .eq("id", session_id)
+        .eq("space_id", space_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(result.data)
 
 
-def get_recent_history(space_id: str, n: int = 6) -> List[Dict]:
+def update_session_title(session_id: str, title: str) -> None:
+    """Update the title of a session."""
+    sb = get_supabase()
+    sb.table("sessions").update({"title": title}).eq("id", session_id).execute()
+
+
+def delete_session(session_id: str) -> None:
+    """Delete a session and all its messages (cascade handles messages)."""
+    sb = get_supabase()
+    sb.table("sessions").delete().eq("id", session_id).execute()
+
+
+# ─── Message / history management ────────────────────────────────────────────
+def get_history(session_id: str) -> List[Dict]:
+    """Return full message history for a session as list of {role, content}."""
+    sb = get_supabase()
+    result = (
+        sb.table("messages")
+        .select("role, content")
+        .eq("session_id", session_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return [{"role": row["role"], "content": row["content"]} for row in result.data]
+
+
+def get_history_full(session_id: str) -> List[Dict]:
+    """Return full message history for frontend display."""
+    sb = get_supabase()
+    result = (
+        sb.table("messages")
+        .select("role, content, sources, created_at")
+        .eq("session_id", session_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return [
+        {
+            "role": row["role"],
+            "content": row["content"],
+            "sources": row.get("sources") or [],
+            "created_at": row.get("created_at"),
+        }
+        for row in result.data
+    ]
+
+
+def get_recent_history(session_id: str, n: int = 6) -> List[Dict]:
     """Return the last n messages for context window management."""
-    return get_history(space_id)[-n:]
+    return get_history(session_id)[-n:]
 
 
-def set_last_nudge(space_id: str, nudge: str) -> None:
-    """Store the nudge from the most recent assistant response."""
-    _last_nudge[space_id] = nudge
+def add_message(
+    session_id: str,
+    space_id: str,
+    role: str,
+    content: str,
+    sources: List[str] = [],
+) -> None:
+    """Append a message to a session."""
+    sb = get_supabase()
+    sb.table("messages").insert(
+        {
+            "session_id": session_id,
+            "space_id": space_id,
+            "role": role,
+            "content": content,
+            "sources": sources,
+        }
+    ).execute()
 
 
-def get_last_nudge(space_id: str) -> Optional[str]:
-    """Return the stored nudge for this space, or None if not set."""
-    return _last_nudge.get(space_id, None)
+def clear_history(session_id: str) -> None:
+    """Delete all messages for a session."""
+    sb = get_supabase()
+    sb.table("messages").delete().eq("session_id", session_id).execute()
+    clear_nudge(session_id)
 
 
-def clear_nudge(space_id: str) -> None:
-    """Clear the stored nudge after it has been consumed."""
-    _last_nudge.pop(space_id, None)
+# ─── Nudge store (in-memory, ephemeral) ───────────────────────────────────────
+def set_last_nudge(session_id: str, nudge: str) -> None:
+    _last_nudge[session_id] = nudge
+
+
+def get_last_nudge(session_id: str) -> Optional[str]:
+    return _last_nudge.get(session_id, None)
+
+
+def clear_nudge(session_id: str) -> None:
+    _last_nudge.pop(session_id, None)

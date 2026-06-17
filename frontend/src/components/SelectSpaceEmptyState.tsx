@@ -12,7 +12,7 @@ export default function SelectSpaceEmptyState() {
       <div className="mb-4 rounded-2xl border border-[#2a2a35] bg-[#171722] p-4">
         <Layers size={28} className="text-[#71717a]" />
       </div>
-      <p className="text-base text-[#a1a1aa]">Select a space from the sidebar to begin.</p>
+      <p className="text-base text-[#a1a1aa]">Select a subject from the sidebar to begin.</p>
     </motion.div>
   )
 }

@@ -78,14 +78,26 @@ export const deleteSpaceDocument = async (
   )
 }
 
-export const clearSpaceHistory = async (spaceId: string): Promise<void> => {
-  await apiClient.delete(`/spaces/${encodeURIComponent(spaceId)}/history`)
+export const clearSpaceHistory = async (
+  spaceId: string,
+  sessionId: string,
+): Promise<void> => {
+  await apiClient.delete(`/spaces/${encodeURIComponent(spaceId)}/history`, {
+    params: { session_id: sessionId },
+  })
 }
 
-export const chatInSpace = async (spaceId: string, message: string): Promise<ChatResponse> => {
+export const chatInSpace = async (
+  spaceId: string,
+  message: string,
+  sessionId: string | null = null,
+): Promise<ChatResponse> => {
   const response = await apiClient.post<ChatResponse>(
     `/spaces/${encodeURIComponent(spaceId)}/chat`,
-    { message },
+    {
+      message,
+      session_id: sessionId,
+    },
   )
   return response.data
 }

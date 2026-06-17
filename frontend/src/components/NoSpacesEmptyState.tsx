@@ -17,10 +17,10 @@ export default function NoSpacesEmptyState({ onCreateSpace }: NoSpacesEmptyState
         <FolderOpen size={32} className="text-[#7c5cff]" />
       </div>
       <h1 className="text-2xl font-bold tracking-tight text-[#f4f4f5] md:text-3xl">
-        Create your first study space
+        Create your first subject
       </h1>
       <p className="mt-3 text-sm leading-relaxed text-[#a1a1aa]">
-        Organise your documents by topic. Each space has its own documents and chat.
+        Organise your documents by topic. Each subject has its own documents and chat.
       </p>
       <button
         type="button"
@@ -28,7 +28,7 @@ export default function NoSpacesEmptyState({ onCreateSpace }: NoSpacesEmptyState
         className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#7c5cff] px-5 py-2.5 text-sm font-medium text-white transition-all hover:bg-[#6b4df5] hover:scale-[1.02] active:scale-[0.98]"
       >
         <Plus size={16} />
-        Create Space
+        Create Subject
       </button>
     </motion.div>
   )

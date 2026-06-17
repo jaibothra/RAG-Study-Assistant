@@ -5,6 +5,13 @@ export interface StudySpace {
   document_count: number
 }
 
+export interface Session {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Document {
   name: string
   size: number
@@ -28,6 +35,7 @@ export type LoadingPhase = 'idle' | 'searching' | 'generating'
 export interface ChatResponse {
   answer: string
   sources: string[]
+  session_id: string
 }
 
 export interface UploadResponse {

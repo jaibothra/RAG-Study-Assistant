@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Menu } from 'lucide-react'
 import { getSpaces } from './api/spaces'
 import { useChatStore } from './store/chatStore'
+import { useSessionStore } from './store/sessionStore'
 import { useSpaceStore } from './store/spaceStore'
 import ChatComposer from './components/ChatComposer'
 import ChatWindow from './components/ChatWindow'
@@ -15,8 +16,12 @@ import Sidebar from './components/Sidebar'
 export default function App() {
   const messages = useChatStore((state) => state.messages)
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const activeSessionId = useSessionStore((state) =>
+    activeSpaceId ? state.getActiveSessionId(activeSpaceId) : null,
+  )
   const setActiveSpace = useSpaceStore((state) => state.setActiveSpace)
   const chatStarted = messages.length > 0
+  const hasSelectedSession = Boolean(activeSessionId)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [showCreateSpaceInput, setShowCreateSpaceInput] = useState(false)
 
@@ -55,7 +60,7 @@ export default function App() {
       )
     }
 
-    if (!chatStarted) {
+    if (!chatStarted && !hasSelectedSession) {
       return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
           <div className="flex w-full max-w-3xl flex-col items-center gap-8">

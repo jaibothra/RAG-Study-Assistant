@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from groq import Groq
 from pydantic import BaseModel
 
 from src.data_loader import SUPPORTED_EXTENSIONS, load_all_documents
@@ -17,11 +18,23 @@ from src.memory import (
     add_message,
     clear_history,
     clear_nudge,
+    create_session,
+    delete_session,
+    get_history_full,
     get_last_nudge,
     get_recent_history,
+    get_sessions,
+    session_belongs_to_space,
     set_last_nudge,
+    update_session_title,
 )
-from src.rag import DEFAULT_STORE_DIR, RAGSearch, answer_question
+from src.rag import (
+    DEFAULT_STORE_DIR,
+    RAGSearch,
+    answer_question,
+    answer_conversational,
+    is_conversational,
+)
 from src.vector_store import FaissVectorStore
 
 DATA_DIR = Path("data")
@@ -33,11 +46,13 @@ UPLOAD_EXTENSIONS = {".pdf", ".docx", ".csv", ".txt", ".xlsx"}
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[str]
+    session_id: Optional[str] = None
 
 
 class UploadResponse(BaseModel):
@@ -106,6 +121,28 @@ class ClearHistoryResponse(BaseModel):
     cleared: str
 
 
+class SessionItem(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class SessionsResponse(BaseModel):
+    sessions: List[SessionItem]
+
+
+class SessionMessageItem(BaseModel):
+    role: str
+    content: str
+    sources: List[str] = []
+    created_at: Optional[str] = None
+
+
+class SessionMessagesResponse(BaseModel):
+    messages: List[SessionMessageItem]
+
+
 app = FastAPI(title="RAG API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -114,6 +151,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _get_groq_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY is missing")
+    return Groq(api_key=api_key)
 
 
 def _rebuild_index(data_dir: Path = DATA_DIR, store_dir: Path = Path(DEFAULT_STORE_DIR)) -> None:
@@ -153,6 +197,15 @@ def _space_faiss_dir(space_id: str) -> Path:
     index_dir = _space_root(space_id) / "faiss_index"
     index_dir.mkdir(parents=True, exist_ok=True)
     return index_dir
+
+
+def _ensure_session_in_space(space_id: str, session_id: str) -> None:
+    try:
+        belongs = session_belongs_to_space(session_id, space_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while validating session: {exc}") from exc
+    if not belongs:
+        raise HTTPException(status_code=404, detail="Session not found in this space")
 
 
 def _read_space_metadata(space_id: str) -> dict:
@@ -343,9 +396,38 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
     _space_root(space_id)
     docs_dir = _space_documents_dir(space_id)
     faiss_dir = _space_faiss_dir(space_id)
+    session_id = payload.session_id
+    is_new_session = session_id is None
 
-    history = get_recent_history(space_id)
-    last_nudge = get_last_nudge(space_id)
+    try:
+        if session_id is None:
+            session_id = create_session(space_id)
+        else:
+            _ensure_session_in_space(space_id, session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while preparing session: {exc}") from exc
+
+    if is_conversational(message):
+        try:
+            history = get_recent_history(session_id)
+            answer = answer_conversational(message, history)
+            add_message(session_id, space_id, "user", message)
+            add_message(session_id, space_id, "assistant", answer)
+            clear_nudge(session_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Supabase error while handling conversational chat: {exc}",
+            ) from exc
+
+        return ChatResponse(answer=answer, sources=[], session_id=session_id)
+
+    try:
+        history = get_recent_history(session_id)
+        last_nudge = get_last_nudge(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while preparing session: {exc}") from exc
+
     rag = RAGSearch(data_dir=docs_dir, persist_dir=faiss_dir)
     results = rag.search(message, top_k=5)
     answer = answer_question(
@@ -354,17 +436,6 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
         conversation_history=history,
         last_nudge=last_nudge,
     )
-
-    # Extract nudge from the response and store it explicitly for the next turn.
-    # The nudge is always the last paragraph (separated by a blank line).
-    parts = answer.split("\n\n")
-    if len(parts) >= 2:
-        set_last_nudge(space_id, parts[-1].strip())
-    else:
-        clear_nudge(space_id)
-
-    add_message(space_id, "user", message)
-    add_message(space_id, "assistant", answer)
 
     sources: List[str] = []
     for item in results:
@@ -375,18 +446,122 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
             if source_name not in sources:
                 sources.append(source_name)
 
-    return ChatResponse(answer=answer, sources=sources)
+    try:
+        # Extract nudge from the response and store it explicitly for the next turn.
+        # The nudge is always the last paragraph (separated by a blank line).
+        parts = answer.split("\n\n")
+        if len(parts) >= 2:
+            set_last_nudge(session_id, parts[-1].strip())
+        else:
+            clear_nudge(session_id)
+
+        add_message(session_id, space_id, "user", message)
+        add_message(session_id, space_id, "assistant", answer, sources)
+
+        if is_new_session:
+            groq_client = _get_groq_client()
+            title_prompt = f"""Generate a short, specific session title for a study session
+that started with this question: "{message}"
+
+Rules:
+- Title case
+- Maximum 6 words
+- Phrase it as a topic or question, not a statement
+- Examples: "What Is Gradient Descent?", "Support Vector Machines Explained",
+  "Neural Network Backpropagation", "Types of Regression Models"
+
+Return only the title. Nothing else."""
+            title_response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": title_prompt}],
+                max_tokens=20,
+                temperature=0,
+            )
+            generated_title = title_response.choices[0].message.content.strip()
+            if generated_title:
+                update_session_title(session_id, generated_title)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while storing chat: {exc}") from exc
+
+    return ChatResponse(answer=answer, sources=sources, session_id=session_id)
+
+
+@app.get(
+    "/spaces/{space_id}/sessions",
+    response_model=SessionsResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+async def list_sessions(space_id: str):
+    _space_root(space_id)
+    try:
+        sessions = get_sessions(space_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while listing sessions: {exc}") from exc
+    return SessionsResponse(sessions=sessions)
+
+
+@app.delete(
+    "/spaces/{space_id}/sessions/{session_id}",
+    response_model=DeleteResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+async def remove_session(space_id: str, session_id: str):
+    _space_root(space_id)
+    _ensure_session_in_space(space_id, session_id)
+    try:
+        delete_session(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while deleting session: {exc}") from exc
+    return DeleteResponse(deleted=session_id)
+
+
+@app.delete(
+    "/spaces/{space_id}/sessions/{session_id}/history",
+    response_model=ClearHistoryResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+async def clear_session_history(space_id: str, session_id: str):
+    _space_root(space_id)
+    _ensure_session_in_space(space_id, session_id)
+    try:
+        clear_history(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while clearing history: {exc}") from exc
+    return ClearHistoryResponse(cleared=session_id)
+
+
+@app.get(
+    "/spaces/{space_id}/sessions/{session_id}/messages",
+    response_model=SessionMessagesResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+async def list_session_messages(space_id: str, session_id: str):
+    _space_root(space_id)
+    _ensure_session_in_space(space_id, session_id)
+    try:
+        messages = get_history_full(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while loading messages: {exc}") from exc
+    return SessionMessagesResponse(messages=messages)
 
 
 @app.delete(
     "/spaces/{space_id}/history",
     response_model=ClearHistoryResponse,
-    responses={404: {"model": ErrorResponse}},
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
 )
-async def clear_space_history(space_id: str):
+async def clear_space_history(space_id: str, session_id: str):
     _space_root(space_id)
-    clear_history(space_id)
-    return ClearHistoryResponse(cleared=space_id)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    _ensure_session_in_space(space_id, session_id)
+    try:
+        clear_history(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error while clearing history: {exc}") from exc
+    return ClearHistoryResponse(cleared=session_id)
 
 
 @app.get(

@@ -6,6 +6,7 @@ interface ChatStore {
   isLoading: boolean
   loadingPhase: LoadingPhase
   addMessage: (message: Message) => void
+  loadSession: (messages: Message[]) => void
   updateMessage: (id: string, patch: Partial<Message>) => void
   removeLastAssistantMessage: () => void
   setLoading: (loading: boolean) => void
@@ -21,6 +22,12 @@ export const useChatStore = create<ChatStore>((set) => ({
     set((state) => ({
       messages: [...state.messages, message],
     })),
+  loadSession: (messages) =>
+    set({
+      messages,
+      isLoading: false,
+      loadingPhase: 'idle',
+    }),
   updateMessage: (id, patch) =>
     set((state) => ({
       messages: state.messages.map((message) =>

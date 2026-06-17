@@ -1,4 +1,6 @@
 import { BookOpen, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { getSpaces } from '../api/spaces'
 import DocumentList from './DocumentList'
 import FileUpload from './FileUpload'
 import StudySpacesSection from './StudySpacesSection'
@@ -20,6 +22,12 @@ export default function Sidebar({
   onHideCreateSpaceInput,
 }: SidebarProps) {
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const { data: spaces = [] } = useQuery({
+    queryKey: ['spaces'],
+    queryFn: getSpaces,
+  })
+  const activeSpace = spaces.find((space) => space.id === activeSpaceId)
+  const documentsHeading = activeSpace ? `${activeSpace.document_count} Documents` : 'Documents'
 
   return (
     <>
@@ -30,7 +38,7 @@ export default function Sidebar({
         onClick={onMobileClose}
       />
       <aside
-        className={`fixed top-0 left-0 z-40 flex h-screen w-[255px] shrink-0 flex-col border-r border-[#2a2a35] bg-[#111118] p-4 transition-transform duration-300 lg:static lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-40 flex h-screen w-[293px] shrink-0 flex-col border-r border-[#2a2a35] bg-[#111118] p-4 transition-transform duration-300 lg:static lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -38,11 +46,11 @@ export default function Sidebar({
           <div>
             <div className="flex items-center gap-2">
               <div className="rounded-lg bg-[#171722] p-1.5">
-                <BookOpen size={16} className="text-[#7c5cff]" />
+                <BookOpen size={18} className="text-[#7c5cff]" />
               </div>
-              <h1 className="text-lg font-bold tracking-tight text-[#f4f4f5]">StudyAI</h1>
+              <h1 className="text-xl font-bold tracking-tight text-[#f4f4f5]">StudyAI</h1>
             </div>
-            <p className="mt-1 text-[11px] text-[#71717a]">Your AI learning companion</p>
+            <p className="mt-1 text-sm text-[#71717a]">Your AI learning companion</p>
           </div>
           <button
             type="button"
@@ -62,10 +70,10 @@ export default function Sidebar({
 
           <div className="border-t border-[#2a2a35] pt-3">
             <p className="mb-2 text-[10px] font-semibold tracking-wide text-[#71717a] uppercase">
-              Documents
+              {documentsHeading}
             </p>
             {!activeSpaceId ? (
-              <p className="text-xs text-[#71717a]">Select a space to see documents.</p>
+              <p className="text-xs text-[#71717a]">Select a subject to see documents.</p>
             ) : (
               <div className="space-y-2">
                 <FileUpload spaceId={activeSpaceId} />

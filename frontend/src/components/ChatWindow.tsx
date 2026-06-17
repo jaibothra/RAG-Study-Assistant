@@ -1,23 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { clearSpaceHistory } from '../api/spaces'
+import { getSessionMessages } from '../api/sessions'
 import { useChatStore } from '../store/chatStore'
+import { useSessionStore } from '../store/sessionStore'
 import { useSpaceStore } from '../store/spaceStore'
 import ChatMessage from './ChatMessage'
 import ThinkingIndicator from './ThinkingIndicator'
 
 export default function ChatWindow() {
-  const { messages, isLoading, clearMessages } = useChatStore()
+  const { messages, isLoading, clearMessages, loadSession } = useChatStore()
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const activeSessionId = useSessionStore((state) =>
+    activeSpaceId ? state.getActiveSessionId(activeSpaceId) : null,
+  )
   const [clearing, setClearing] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
+  const { data: sessionMessages } = useQuery({
+    queryKey: ['session-messages', activeSpaceId, activeSessionId],
+    queryFn: () => getSessionMessages(activeSpaceId as string, activeSessionId as string),
+    enabled: Boolean(activeSpaceId) && Boolean(activeSessionId),
+  })
+
   const handleClearChat = async () => {
-    if (!activeSpaceId || clearing) {
+    if (!activeSpaceId || !activeSessionId || clearing) {
       return
     }
     setClearing(true)
     try {
-      await clearSpaceHistory(activeSpaceId)
+      await clearSpaceHistory(activeSpaceId, activeSessionId)
       clearMessages()
     } finally {
       setClearing(false)
@@ -27,6 +39,13 @@ export default function ChatWindow() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      return
+    }
+    loadSession(sessionMessages ?? [])
+  }, [activeSessionId, sessionMessages, loadSession])
 
   const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content
 

@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Check, Copy, RotateCcw } from 'lucide-react'
 import type { Message } from '../types'
 import { useChatStore } from '../store/chatStore'
 import { chatInSpace } from '../api/spaces'
+import { useSessionStore } from '../store/sessionStore'
 import { useSpaceStore } from '../store/spaceStore'
 import { streamText } from '../lib/utils'
 import SourcePills from './SourcePills'
@@ -24,8 +26,13 @@ function splitAnswerAndNudge(content: string): { answer: string; nudge: string |
 }
 
 export default function ChatMessage({ message, regeneratePrompt }: ChatMessageProps) {
+  const queryClient = useQueryClient()
   const [copied, setCopied] = useState(false)
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const activeSessionId = useSessionStore((state) =>
+    activeSpaceId ? state.getActiveSessionId(activeSpaceId) : null,
+  )
+  const setActiveSession = useSessionStore((state) => state.setActiveSession)
   const isUser = message.role === 'user'
   const { answer, nudge } =
     !isUser && !message.isStreaming ? splitAnswerAndNudge(message.content) : { answer: message.content, nudge: null as string | null }
@@ -54,7 +61,9 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
     setLoadingPhase('generating')
 
     try {
-      const response = await chatInSpace(activeSpaceId, regeneratePrompt)
+      const response = await chatInSpace(activeSpaceId, regeneratePrompt, activeSessionId)
+      setActiveSession(activeSpaceId, response.session_id)
+      void queryClient.invalidateQueries({ queryKey: ['sessions', activeSpaceId] })
       const assistantId = crypto.randomUUID()
       addMessage({
         id: assistantId,
