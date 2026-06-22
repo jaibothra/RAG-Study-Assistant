@@ -64,24 +64,38 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
       const response = await chatInSpace(activeSpaceId, regeneratePrompt, activeSessionId)
       setActiveSession(activeSpaceId, response.session_id)
       void queryClient.invalidateQueries({ queryKey: ['sessions', activeSpaceId] })
-      const assistantId = crypto.randomUUID()
-      addMessage({
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        sources: response.sources,
-        timestamp: new Date(),
-        isStreaming: true,
-      })
-      streamText(
-        response.answer,
-        (value) => updateMessage(assistantId, { content: value }),
-        () => {
-          updateMessage(assistantId, { content: response.answer, isStreaming: false })
-          setLoading(false)
-          setLoadingPhase('idle')
-        },
-      )
+      if (response.type === 'quiz' && response.quiz) {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: '',
+          type: 'quiz',
+          quiz: response.quiz,
+          timestamp: new Date(),
+        })
+        setLoading(false)
+        setLoadingPhase('idle')
+      } else {
+        const assistantId = crypto.randomUUID()
+        addMessage({
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          sources: response.sources,
+          type: 'chat',
+          timestamp: new Date(),
+          isStreaming: true,
+        })
+        streamText(
+          response.answer ?? '',
+          (value) => updateMessage(assistantId, { content: value }),
+          () => {
+            updateMessage(assistantId, { content: response.answer ?? '', isStreaming: false })
+            setLoading(false)
+            setLoadingPhase('idle')
+          },
+        )
+      }
     } catch {
       addMessage({
         id: crypto.randomUUID(),

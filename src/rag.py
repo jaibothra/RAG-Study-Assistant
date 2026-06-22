@@ -1,6 +1,8 @@
 import os
+import json
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -104,6 +106,224 @@ CONVERSATIONAL_PATTERNS = {
     "ah",
     "hmm",
 }
+
+
+def detect_quiz_intent(message: str) -> Tuple[bool, str, int]:
+    """
+    Returns (is_quiz, topic, num_questions).
+    Detects common "quiz me" style prompts and extracts topic + count.
+    """
+    normalized = message.strip().lower()
+
+    quiz_triggers = [
+        "quiz me on",
+        "quiz me about",
+        "generate a quiz",
+        "make a quiz",
+        "create a quiz",
+        "give me a quiz",
+        "test me on",
+        "test me about",
+        "ask me questions about",
+        "give me questions on",
+        "give me questions about",
+        "quiz on",
+        "quiz about",
+        "mcq",
+        "mcqs",
+        "make a mcq",
+        "make mcq",
+        "make a test",
+        "make a test on",
+        "generate a test",
+        "create a test",
+        "give me a test",
+        "make me a test",
+        "multiple choice",
+        "multiple choice questions",
+        "multiple choice test",
+        "multiple choice quiz",
+        "make a multiple choice",
+    ]
+
+    numeric_quiz_pattern = re.search(
+        r"\b(?:give me|ask me|make|create|generate)\s+\d+\s+questions?\b", normalized
+    )
+    question_quiz_pattern = re.search(
+        r"\b(?:give me|ask me)\s+\d+\s+questions?\s+(?:on|about)\s+(.+)$", normalized
+    )
+    make_quiz_pattern = re.search(
+        r"\bmake\s+a\s+\d+\s+question\s+quiz\s+(?:on|about)\s+(.+)$", normalized
+    )
+
+    is_quiz = any(trigger in normalized for trigger in quiz_triggers)
+    if not is_quiz and (numeric_quiz_pattern or question_quiz_pattern or make_quiz_pattern):
+        is_quiz = True
+    if not is_quiz:
+        return False, "", 5
+
+    num_match = re.search(r"(\d+)\s*(questions?|mcqs?|q'?s?)", normalized)
+    num_questions = int(num_match.group(1)) if num_match else 5
+    num_questions = max(1, min(num_questions, 20))
+
+    topic = ""
+    for trigger in sorted(quiz_triggers, key=len, reverse=True):
+        if trigger in normalized:
+            after = normalized.split(trigger, 1)[1].strip()
+            after = re.sub(r"^\d+\s*questions?\s*(on|about)?\s*", "", after).strip()
+            topic = after
+            break
+
+    if not topic:
+        topic_match = re.search(r"\bquestions?\s+(?:on|about)\s+(.+)$", normalized)
+        if topic_match:
+            topic = topic_match.group(1).strip()
+
+    if not topic:
+        quiz_about_match = re.search(r"\bquiz\s+(?:on|about)\s+(.+)$", normalized)
+        if quiz_about_match:
+            topic = quiz_about_match.group(1).strip()
+
+    return True, topic, num_questions
+
+
+def filter_relevant_chunks(chunks: List[str], topic: str) -> List[str]:
+    """Keep only chunks that are meaningfully related to the topic."""
+    if not chunks:
+        return []
+
+    chunk_text = "\n---\n".join([f"Chunk {i + 1}: {c}" for i, c in enumerate(chunks)])
+
+    filter_prompt = f"""Topic: {topic}
+
+Below are text chunks from study documents. Return a JSON array of the chunk
+numbers (1-indexed) that are directly relevant to the topic "{topic}".
+If fewer than 3 chunks are relevant, return an empty array.
+Return ONLY the JSON array, e.g. [1, 3, 5] or [].
+
+Chunks:
+{chunk_text}"""
+
+    try:
+        groq_client = _get_groq_client()
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": filter_prompt}],
+            max_tokens=50,
+            temperature=0,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        indices = json.loads(raw)
+        if not indices:
+            return []
+        return [chunks[i - 1] for i in indices if isinstance(i, int) and 1 <= i <= len(chunks)]
+    except Exception:
+        return chunks  # fallback: use all chunks if filtering fails
+
+
+def generate_quiz(topic: str, num_questions: int, index_path: str) -> Dict:
+    """
+    Generate a multiple choice quiz grounded in user documents when possible.
+    Falls back to model knowledge if retrieval is sparse or unavailable.
+    """
+    normalized_topic = (topic or "").strip()
+    retrieval_query = (
+        f"explain {normalized_topic} definition examples applications"
+        if normalized_topic
+        else "key concepts definition examples applications"
+    )
+    display_topic = normalized_topic or "your study material"
+
+    context = ""
+    try:
+        index = Path(index_path)
+        inferred_data_dir = index.parent / "documents"
+        rag = RAGSearch(
+            data_dir=inferred_data_dir if inferred_data_dir.exists() else DEFAULT_DATA_DIR,
+            persist_dir=index_path,
+        )
+        chunks = rag.search(retrieval_query, top_k=8)
+        texts = [
+            item.get("metadata", {}).get("text", "").strip()
+            for item in chunks
+            if item.get("metadata")
+        ]
+        texts = [text for text in texts if text]
+        filtered_texts = filter_relevant_chunks(texts, display_topic)
+        if len(filtered_texts) >= 3:
+            context = "\n\n".join(filtered_texts)
+    except Exception:
+        context = ""
+
+    if context:
+        source_instruction = f"""Use the following study material as your primary source.
+Base questions on concepts covered in this material:
+
+{context}"""
+    else:
+        source_instruction = f"""No sufficiently relevant study material was found for this topic.
+Generate questions based on standard academic knowledge of: {display_topic}"""
+
+    quiz_prompt = f"""{source_instruction}
+
+Generate exactly {num_questions} multiple choice questions about: {display_topic}
+
+Requirements:
+- Each question tests conceptual understanding, not memorisation
+- Questions must be directly and specifically about "{display_topic}" — do not drift
+  to tangentially related topics
+- Questions should be concise — one or two sentences maximum
+- All 4 options (A, B, C, D) should be plausible — no obviously wrong answers
+- There must be exactly one unambiguously correct answer per question
+- Vary difficulty: mix straightforward and tricky questions
+- For the explanation field: explain the underlying concept that makes the
+  correct answer right. Do NOT say "option X is correct because it references"
+  or "option X is correct because it mentions" — explain the actual concept.
+  Write it as: "[Correct answer] because [conceptual reason]. [Wrong answer]
+  is a common misconception because [reason]." — refer to wrong options by
+  their content, not their letter.
+- Each question must also include a "concept" field: a 2-5 word label for
+  the underlying concept being tested (e.g. "Gradient descent convergence",
+  "Kernel trick in SVMs", "PCA dimensionality reduction"). This will be used
+  to tell students what to revise.
+
+Return ONLY a valid JSON array, no markdown, no other text:
+[
+  {{
+    "id": 1,
+    "question": "...",
+    "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}},
+    "correct": "B",
+    "explanation": "...",
+    "concept": "..."
+  }}
+]"""
+
+    groq_client = _get_groq_client()
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": quiz_prompt}],
+        max_tokens=3000,
+        temperature=0.7,
+    )
+
+    raw = (response.choices[0].message.content or "").strip()
+    raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"^```\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    try:
+        questions = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Quiz generation returned invalid JSON: {raw}") from exc
+
+    if not isinstance(questions, list):
+        raise ValueError(f"Quiz generation returned invalid JSON: {raw}")
+
+    return {
+        "topic": display_topic,
+        "questions": questions,
+    }
 
 
 def is_conversational(message: str) -> bool:

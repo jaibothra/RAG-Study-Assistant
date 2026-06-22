@@ -27,15 +27,40 @@ export interface Message {
   content: string
   sources?: string[]
   timestamp: Date
+  type?: 'chat' | 'quiz'
+  quiz?: QuizData
   isStreaming?: boolean
 }
 
 export type LoadingPhase = 'idle' | 'searching' | 'generating'
 
+export interface QuizOption {
+  A: string
+  B: string
+  C: string
+  D: string
+}
+
+export interface QuizQuestion {
+  id: number
+  question: string
+  options: QuizOption
+  correct: 'A' | 'B' | 'C' | 'D'
+  explanation: string
+  concept: string
+}
+
+export interface QuizData {
+  topic: string
+  questions: QuizQuestion[]
+}
+
 export interface ChatResponse {
-  answer: string
-  sources: string[]
+  type: 'chat' | 'quiz'
+  answer?: string
+  sources?: string[]
   session_id: string
+  quiz?: QuizData
 }
 
 export interface UploadResponse {

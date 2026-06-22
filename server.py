@@ -3,7 +3,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from groq import Groq
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.data_loader import SUPPORTED_EXTENSIONS, load_all_documents
 from src.memory import (
@@ -33,6 +33,8 @@ from src.rag import (
     RAGSearch,
     answer_question,
     answer_conversational,
+    detect_quiz_intent,
+    generate_quiz,
     is_conversational,
 )
 from src.vector_store import FaissVectorStore
@@ -50,9 +52,11 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    answer: str
-    sources: List[str]
+    type: Literal["chat", "quiz"]
+    answer: Optional[str] = None
+    sources: List[str] = Field(default_factory=list)
     session_id: Optional[str] = None
+    quiz: Optional[Dict[str, Any]] = None
 
 
 class UploadResponse(BaseModel):
@@ -407,6 +411,35 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Supabase error while preparing session: {exc}") from exc
 
+    is_quiz, topic, num_questions = detect_quiz_intent(message)
+    if is_quiz:
+        resolved_topic = topic or message
+        index_path = str(faiss_dir)
+        try:
+            quiz_data = generate_quiz(resolved_topic, num_questions, index_path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(exc)}") from exc
+
+        try:
+            add_message(session_id, space_id, "user", message)
+            add_message(
+                session_id,
+                space_id,
+                "assistant",
+                f"Generated a {num_questions}-question quiz on {quiz_data.get('topic', resolved_topic)}.",
+            )
+            clear_nudge(session_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase error while storing chat: {exc}") from exc
+
+        return ChatResponse(
+            type="quiz",
+            quiz=quiz_data,
+            answer=None,
+            sources=[],
+            session_id=session_id,
+        )
+
     if is_conversational(message):
         try:
             history = get_recent_history(session_id)
@@ -420,7 +453,7 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
                 detail=f"Supabase error while handling conversational chat: {exc}",
             ) from exc
 
-        return ChatResponse(answer=answer, sources=[], session_id=session_id)
+        return ChatResponse(type="chat", answer=answer, sources=[], session_id=session_id)
 
     try:
         history = get_recent_history(session_id)
@@ -485,7 +518,7 @@ Return only the title. Nothing else."""
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Supabase error while storing chat: {exc}") from exc
 
-    return ChatResponse(answer=answer, sources=sources, session_id=session_id)
+    return ChatResponse(type="chat", answer=answer, sources=sources, session_id=session_id)
 
 
 @app.get(
@@ -640,7 +673,7 @@ async def chat(payload: ChatRequest):
             if source_name not in sources:
                 sources.append(source_name)
 
-    return ChatResponse(answer=answer, sources=sources)
+    return ChatResponse(type="chat", answer=answer, sources=sources)
 
 
 @app.get("/documents", response_model=DocumentsResponse)

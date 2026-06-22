@@ -6,6 +6,7 @@ import { useChatStore } from '../store/chatStore'
 import { useSessionStore } from '../store/sessionStore'
 import { useSpaceStore } from '../store/spaceStore'
 import ChatMessage from './ChatMessage'
+import QuizCard from './QuizCard'
 import ThinkingIndicator from './ThinkingIndicator'
 
 export default function ChatWindow() {
@@ -21,6 +22,7 @@ export default function ChatWindow() {
     queryKey: ['session-messages', activeSpaceId, activeSessionId],
     queryFn: () => getSessionMessages(activeSpaceId as string, activeSessionId as string),
     enabled: Boolean(activeSpaceId) && Boolean(activeSessionId),
+    refetchOnWindowFocus: false,
   })
 
   const handleClearChat = async () => {
@@ -69,13 +71,20 @@ export default function ChatWindow() {
             !message.isStreaming &&
             !isLoading
           return (
-            <ChatMessage
-              key={message.id}
-              message={message}
-              regeneratePrompt={
-                isLastAssistant && lastUserMessage ? lastUserMessage : undefined
-              }
-            />
+            <div key={message.id}>
+              {message.type === 'quiz' && message.quiz ? (
+                <div className="flex justify-start">
+                  <QuizCard quiz={message.quiz} />
+                </div>
+              ) : (
+                <ChatMessage
+                  message={message}
+                  regeneratePrompt={
+                    isLastAssistant && lastUserMessage ? lastUserMessage : undefined
+                  }
+                />
+              )}
+            </div>
           )
         })}
         {isLoading ? <ThinkingIndicator /> : null}
