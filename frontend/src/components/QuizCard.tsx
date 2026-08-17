@@ -108,7 +108,7 @@ export default function QuizCard({ quiz }: QuizCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-[88%] rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20 max-h-[70vh] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#2f2f2f_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#2f2f2f] [&::-webkit-scrollbar-track]:bg-transparent"
+      className="w-full rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20 max-h-[70vh] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#2f2f2f_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#2f2f2f] [&::-webkit-scrollbar-track]:bg-transparent"
     >
       <div className="mb-4">
         <p className="text-sm font-medium text-[#6366f1]">{displayTopic}</p>

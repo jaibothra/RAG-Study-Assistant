@@ -52,13 +52,13 @@ export default function ChatWindow() {
   const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content
 
   return (
-    <div className="relative h-full overflow-y-auto px-4 py-6 md:px-8">
+    <div className="relative h-full overflow-y-auto px-4 py-6 md:px-4">
       {messages.length > 0 && activeSpaceId ? (
         <button
           type="button"
           onClick={() => void handleClearChat()}
           disabled={clearing || isLoading}
-          className="absolute right-4 top-3 z-10 text-xs text-[#71717a] transition-colors hover:text-[#a1a1aa] disabled:opacity-50 md:right-8"
+          className="absolute right-4 top-3 z-10 text-xs text-[#71717a] transition-colors hover:text-[#a1a1aa] disabled:opacity-50"
         >
           {clearing ? 'Clearing…' : 'Clear chat'}
         </button>
@@ -73,9 +73,7 @@ export default function ChatWindow() {
           return (
             <div key={message.id}>
               {message.type === 'quiz' && message.quiz ? (
-                <div className="flex justify-start">
-                  <QuizCard quiz={message.quiz} />
-                </div>
+                <QuizCard quiz={message.quiz} />
               ) : (
                 <ChatMessage
                   message={message}

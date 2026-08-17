@@ -9,8 +9,7 @@ import ChatComposer from './components/ChatComposer'
 import ChatWindow from './components/ChatWindow'
 import DocumentPreviewPanel from './components/DocumentPreviewPanel'
 import EmptyState from './components/EmptyState'
-import NoSpacesEmptyState from './components/NoSpacesEmptyState'
-import SelectSpaceEmptyState from './components/SelectSpaceEmptyState'
+import HomeDashboard from './components/HomeDashboard'
 import Sidebar from './components/Sidebar'
 
 export default function App() {
@@ -39,31 +38,26 @@ export default function App() {
     }
   }, [spacesLoading, spaces, activeSpaceId, setActiveSpace])
 
-  const hasSpaces = spaces.length > 0
-  const showNoSpaces = !spacesLoading && !hasSpaces
-  const showSelectSpace = hasSpaces && !activeSpaceId
+  const handleCreateSpace = () => {
+    setShowCreateSpaceInput(true)
+    setMobileSidebarOpen(true)
+  }
 
   const renderMainContent = () => {
-    if (showNoSpaces) {
+    if (!activeSpaceId) {
       return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <NoSpacesEmptyState onCreateSpace={() => setShowCreateSpaceInput(true)} />
-        </div>
-      )
-    }
-
-    if (showSelectSpace) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <SelectSpaceEmptyState />
-        </div>
+        <HomeDashboard
+          spaces={spaces}
+          isLoading={spacesLoading}
+          onCreateSpace={handleCreateSpace}
+        />
       )
     }
 
     if (!chatStarted && !hasSelectedSession) {
       return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="flex w-full max-w-3xl flex-col items-center gap-8">
+          <div className="flex w-full max-w-4xl flex-col items-center gap-8">
             <div className="-translate-y-7">
               <EmptyState />
             </div>

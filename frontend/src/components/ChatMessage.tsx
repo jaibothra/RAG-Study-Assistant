@@ -9,6 +9,7 @@ import { useSessionStore } from '../store/sessionStore'
 import { useSpaceStore } from '../store/spaceStore'
 import { streamText } from '../lib/utils'
 import SourcePills from './SourcePills'
+import MarkdownText from './MarkdownText'
 
 interface ChatMessageProps {
   message: Message
@@ -122,14 +123,18 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
           </p>
         </div>
       ) : (
-        <div className="w-full max-w-[88%] rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20">
+        <div className="w-full rounded-2xl border border-[#2a2a35] bg-[#111118] px-5 py-4 shadow-lg shadow-black/20">
           <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#e4e4e7]">
-            {answer}
+            <MarkdownText text={answer} />
             {message.isStreaming ? (
               <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-[#7c5cff]" />
             ) : null}
           </p>
-          {nudge ? <p className="font-semibold text-[#b3bbc8] mt-5 block text-sm">{nudge}</p> : null}
+          {nudge ? (
+            <p className="mt-5 block text-sm font-semibold text-[#b3bbc8]">
+              <MarkdownText text={nudge} />
+            </p>
+          ) : null}
           {message.sources && message.sources.length > 0 ? (
             <SourcePills sources={message.sources} />
           ) : null}

@@ -51,7 +51,13 @@ export const useSpaceStore = create<SpaceStore>()(
     }),
     {
       name: 'study-spaces',
-      partialize: (state) => ({ activeSpaceId: state.activeSpaceId }),
+      // Do not persist activeSpaceId — app always lands on Home after refresh.
+      partialize: () => ({}),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.activeSpaceId = null
+        }
+      },
     },
   ),
 )

@@ -6,7 +6,7 @@ export default function EmptyState() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="mx-auto flex w-full max-w-3xl flex-col items-center px-6 text-center"
+      className="mx-auto flex w-full max-w-4xl flex-col items-center px-6 text-center"
     >
       <motion.h1
         initial={{ opacity: 0, y: 10 }}

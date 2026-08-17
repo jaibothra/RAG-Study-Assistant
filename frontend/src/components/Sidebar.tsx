@@ -22,12 +22,19 @@ export default function Sidebar({
   onHideCreateSpaceInput,
 }: SidebarProps) {
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
+  const setActiveSpace = useSpaceStore((state) => state.setActiveSpace)
   const { data: spaces = [] } = useQuery({
     queryKey: ['spaces'],
     queryFn: getSpaces,
   })
   const activeSpace = spaces.find((space) => space.id === activeSpaceId)
   const documentsHeading = activeSpace ? `${activeSpace.document_count} Documents` : 'Documents'
+  const isHome = !activeSpaceId
+
+  const goHome = () => {
+    setActiveSpace(null)
+    onMobileClose()
+  }
 
   return (
     <>
@@ -43,7 +50,14 @@ export default function Sidebar({
         }`}
       >
         <div className="mb-4 flex items-start justify-between">
-          <div>
+          <button
+            type="button"
+            onClick={goHome}
+            className={`-ml-1 rounded-xl px-1 py-1 text-left transition-colors ${
+              isHome ? 'bg-[#171722]' : 'hover:bg-[#171722]/60'
+            }`}
+            aria-current={isHome ? 'page' : undefined}
+          >
             <div className="flex items-center gap-2">
               <div className="rounded-lg bg-[#171722] p-1.5">
                 <BookOpen size={18} className="text-[#7c5cff]" />
@@ -51,7 +65,7 @@ export default function Sidebar({
               <h1 className="text-xl font-bold tracking-tight text-[#f4f4f5]">StudyAI</h1>
             </div>
             <p className="mt-1 text-sm text-[#71717a]">Your AI learning companion</p>
-          </div>
+          </button>
           <button
             type="button"
             onClick={onMobileClose}

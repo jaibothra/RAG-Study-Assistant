@@ -14,7 +14,7 @@ export default function ThinkingIndicator() {
 
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-[85%] rounded-2xl border border-[#2a2a35] bg-[#171722] px-4 py-3">
+      <div className="w-full rounded-2xl border border-[#2a2a35] bg-[#171722] px-4 py-3">
         <div className="mb-2 flex items-center gap-2 text-xs text-[#7c5cff]">
           <Search size={12} className={isSearching ? 'animate-pulse' : ''} />
           {isSearching ? 'Searching documents...' : 'Generating answer...'}

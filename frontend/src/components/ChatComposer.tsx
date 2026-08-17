@@ -114,11 +114,11 @@ export default function ChatComposer({ centered }: ChatComposerProps) {
       transition={{ duration: 0.45, ease: 'easeInOut' }}
       className={
         centered
-          ? 'w-full max-w-3xl px-6'
+          ? 'w-full max-w-4xl px-4'
           : 'border-t border-[#2a2a35] bg-[#0b0b0f]/90 px-4 py-3 backdrop-blur-md'
       }
     >
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-4xl">
         <form onSubmit={handleSubmit} className="relative">
           <div className="glass-input flex min-h-[52px] items-center gap-2 rounded-2xl px-3 py-1 shadow-xl shadow-black/25">
             <textarea
