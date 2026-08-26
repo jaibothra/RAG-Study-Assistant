@@ -55,11 +55,19 @@ export default function HomeDashboard({
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, ease: 'easeOut' }}
-          className="flex w-full shrink-0 flex-col items-center pt-[18vh] text-center md:pt-[22vh]"
+          className="flex shrink-0 items-center justify-center pt-[14vh] md:pt-[16vh]"
         >
-          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-[#2a2a35] bg-[#171722]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#2a2a35] bg-[#171722]">
             <BookOpen size={22} className="text-[#7c5cff]" />
           </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: 'easeOut', delay: 0.05 }}
+          className="flex w-full shrink-0 flex-col items-center pt-[10vh] text-center md:pt-[12vh]"
+        >
           <h1 className="whitespace-nowrap text-2xl font-bold tracking-tight text-[#f4f4f5] sm:text-3xl md:text-4xl">
             What would you like to study today?
           </h1>

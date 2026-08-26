@@ -63,6 +63,17 @@ export default function ChatComposer({ centered }: ChatComposerProps) {
         })
         setLoading(false)
         setLoadingPhase('idle')
+      } else if (response.type === 'suggestions' && response.suggestions) {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: '',
+          type: 'suggestions',
+          suggestions: response.suggestions,
+          timestamp: new Date(),
+        })
+        setLoading(false)
+        setLoadingPhase('idle')
       } else {
         const assistantId = crypto.randomUUID()
         addMessage({

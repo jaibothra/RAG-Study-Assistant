@@ -121,7 +121,7 @@ function SpaceRow({ space, isActive, onSelect }: SpaceRowProps) {
       <div
         className={`group relative flex items-center gap-2 rounded-lg px-2 py-2 transition-colors ${
           isActive
-            ? 'border-l-2 border-indigo-500 bg-[#1a1a1a] pl-[6px]'
+            ? 'border-l-2 border-[#6366f1] bg-[#1a1b2e] ring-1 ring-[#6366f1]/25 pl-[6px]'
             : 'border-l-2 border-transparent hover:bg-[#171722]'
         }`}
       >

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, Copy, RotateCcw } from 'lucide-react'
-import type { Message } from '../types'
+import { Check, Compass, Copy, Loader2, RotateCcw } from 'lucide-react'
+import type { Message, NextSuggestion } from '../types'
+import { getNextSuggestions } from '../api/sessions'
 import { useChatStore } from '../store/chatStore'
 import { chatInSpace } from '../api/spaces'
 import { useSessionStore } from '../store/sessionStore'
@@ -14,6 +15,8 @@ import MarkdownText from './MarkdownText'
 interface ChatMessageProps {
   message: Message
   regeneratePrompt?: string
+  isFirst?: boolean
+  onSuggestions?: (suggestions: NextSuggestion[]) => void
 }
 
 function splitAnswerAndNudge(content: string): { answer: string; nudge: string | null } {
@@ -26,9 +29,11 @@ function splitAnswerAndNudge(content: string): { answer: string; nudge: string |
   return { answer: content, nudge: null }
 }
 
-export default function ChatMessage({ message, regeneratePrompt }: ChatMessageProps) {
+export default function ChatMessage({ message, regeneratePrompt, isFirst = false, onSuggestions }: ChatMessageProps) {
   const queryClient = useQueryClient()
   const [copied, setCopied] = useState(false)
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsError, setSuggestionsError] = useState(false)
   const activeSpaceId = useSpaceStore((state) => state.activeSpaceId)
   const activeSessionId = useSessionStore((state) =>
     activeSpaceId ? state.getActiveSessionId(activeSpaceId) : null,
@@ -109,6 +114,21 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
     }
   }
 
+  const handleExploreNext = async () => {
+    if (suggestionsLoading || !activeSpaceId || !activeSessionId || !onSuggestions) return
+    setSuggestionsLoading(true)
+    setSuggestionsError(false)
+    try {
+      const suggestions = await getNextSuggestions(activeSpaceId, activeSessionId)
+      onSuggestions(suggestions)
+    } catch {
+      setSuggestionsError(true)
+      window.setTimeout(() => setSuggestionsError(false), 2000)
+    } finally {
+      setSuggestionsLoading(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -137,6 +157,25 @@ export default function ChatMessage({ message, regeneratePrompt }: ChatMessagePr
           ) : null}
           {message.sources && message.sources.length > 0 ? (
             <SourcePills sources={message.sources} />
+          ) : null}
+          {!isFirst && !message.isStreaming && message.type !== 'quiz' && onSuggestions ? (
+            <button
+              type="button"
+              onClick={() => void handleExploreNext()}
+              disabled={suggestionsLoading}
+              className="flex items-center gap-1.5 text-sm text-white hover:text-[#6366f1] transition-colors duration-150 cursor-pointer mt-4"
+            >
+              {suggestionsLoading ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Compass size={15} className="text-[#6366f1]" />
+              )}
+              {suggestionsError ? (
+                <span className="text-red-400">Couldn&apos;t load suggestions</span>
+              ) : (
+                'What should I explore next?'
+              )}
+            </button>
           ) : null}
           {!message.isStreaming ? (
             <div

@@ -33,7 +33,9 @@ from src.rag import (
     RAGSearch,
     answer_question,
     answer_conversational,
+    detect_next_topic_intent,
     detect_quiz_intent,
+    generate_next_suggestions,
     generate_quiz,
     is_conversational,
 )
@@ -52,11 +54,12 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    type: Literal["chat", "quiz"]
+    type: Literal["chat", "quiz", "suggestions"]
     answer: Optional[str] = None
     sources: List[str] = Field(default_factory=list)
     session_id: Optional[str] = None
     quiz: Optional[Dict[str, Any]] = None
+    suggestions: Optional[List[Dict[str, str]]] = None
 
 
 class UploadResponse(BaseModel):
@@ -440,6 +443,27 @@ async def chat_in_space(space_id: str, payload: ChatRequest):
             session_id=session_id,
         )
 
+    if detect_next_topic_intent(message):
+        try:
+            history = get_recent_history(session_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase error: {exc}") from exc
+        index_path = str(faiss_dir)
+        suggestions = generate_next_suggestions(history, index_path)
+        try:
+            add_message(session_id, space_id, "user", message)
+            add_message(session_id, space_id, "assistant", "Here are your next study suggestions.")
+            clear_nudge(session_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase error: {exc}") from exc
+        return ChatResponse(
+            type="suggestions",
+            suggestions=suggestions,
+            answer=None,
+            sources=[],
+            session_id=session_id,
+        )
+
     if is_conversational(message):
         try:
             history = get_recent_history(session_id)
@@ -578,6 +602,22 @@ async def list_session_messages(space_id: str, session_id: str):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Supabase error while loading messages: {exc}") from exc
     return SessionMessagesResponse(messages=messages)
+
+
+@app.post(
+    "/spaces/{space_id}/sessions/{session_id}/suggestions",
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+)
+async def get_suggestions(space_id: str, session_id: str):
+    _space_root(space_id)
+    _ensure_session_in_space(space_id, session_id)
+    try:
+        history = get_recent_history(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase error: {exc}") from exc
+    index_path = str(_space_faiss_dir(space_id))
+    suggestions = generate_next_suggestions(history, index_path)
+    return {"suggestions": suggestions}
 
 
 @app.delete(

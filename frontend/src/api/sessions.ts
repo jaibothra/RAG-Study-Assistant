@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { Message, Session } from '../types'
+import type { Message, NextSuggestion, Session } from '../types'
 
 export const getSessions = (spaceId: string): Promise<Session[]> =>
   apiClient.get(`/spaces/${spaceId}/sessions`).then((r) => r.data.sessions)
@@ -33,3 +33,11 @@ export const getSessionMessages = (
         }),
       ),
     )
+
+export const getNextSuggestions = (
+  spaceId: string,
+  sessionId: string,
+): Promise<NextSuggestion[]> =>
+  apiClient
+    .post(`/spaces/${spaceId}/sessions/${sessionId}/suggestions`)
+    .then((r) => r.data.suggestions)

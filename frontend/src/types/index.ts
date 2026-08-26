@@ -27,8 +27,9 @@ export interface Message {
   content: string
   sources?: string[]
   timestamp: Date
-  type?: 'chat' | 'quiz'
+  type?: 'chat' | 'quiz' | 'suggestions'
   quiz?: QuizData
+  suggestions?: NextSuggestion[]
   isStreaming?: boolean
 }
 
@@ -55,12 +56,18 @@ export interface QuizData {
   questions: QuizQuestion[]
 }
 
+export interface NextSuggestion {
+  concept: string
+  reason: string
+}
+
 export interface ChatResponse {
-  type: 'chat' | 'quiz'
+  type: 'chat' | 'quiz' | 'suggestions'
   answer?: string
   sources?: string[]
   session_id: string
   quiz?: QuizData
+  suggestions?: NextSuggestion[]
 }
 
 export interface UploadResponse {

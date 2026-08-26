@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -324,6 +325,129 @@ Return ONLY a valid JSON array, no markdown, no other text:
         "topic": display_topic,
         "questions": questions,
     }
+
+
+NEXT_TOPIC_TRIGGERS = [
+    "what should i study next", "what should i learn next",
+    "what to study next", "what to learn next",
+    "what's next", "whats next", "what comes next",
+    "suggest what to study", "suggest next topic",
+    "what should i explore next", "explore next",
+    "next topic", "next concept", "what do i study next",
+    "recommend what to study", "recommend next",
+]
+
+
+def detect_next_topic_intent(message: str) -> bool:
+    normalized = message.strip().lower().rstrip(".,!?")
+    return any(trigger in normalized for trigger in NEXT_TOPIC_TRIGGERS)
+
+
+def generate_next_suggestions(
+    conversation_history: List[Dict],
+    index_path: str,
+    topic_hint: str = "",
+) -> List[Dict]:
+    """
+    Generate 3 concept suggestions for what the student should study next.
+    Returns list of { "concept": str, "reason": str }
+    """
+    print(
+        f"[suggestions] generating for session, query will be derived from {len(conversation_history)} messages"
+    )
+
+    if not conversation_history:
+        return []
+
+    history_text = "\n".join(
+        [f"{m['role'].upper()}: {m['content'][:300]}" for m in conversation_history[-10:]]
+    )
+
+    extract_prompt = f"""Based on this study session conversation:
+{history_text}
+
+Write a short search query (10-15 words) that would find related but not
+yet discussed concepts in the same subject area. The query should look for
+the NEXT logical topics to study, not the ones already discussed.
+Return only the search query, nothing else."""
+
+    groq_client = _get_groq_client()
+
+    suggestion_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+    try:
+        extract_response = groq_client.chat.completions.create(
+            model=suggestion_model,
+            messages=[{"role": "user", "content": extract_prompt}],
+            max_tokens=50,
+            temperature=0,
+        )
+        search_query = extract_response.choices[0].message.content.strip()
+    except Exception:
+        search_query = topic_hint or "related concepts next topics"
+
+    related_context = ""
+    try:
+        index = Path(index_path)
+        inferred_data_dir = index.parent / "documents"
+        rag = RAGSearch(
+            data_dir=inferred_data_dir if inferred_data_dir.exists() else DEFAULT_DATA_DIR,
+            persist_dir=index_path,
+        )
+        chunks = rag.search(search_query, top_k=6)
+        texts = [
+            item.get("metadata", {}).get("text", "").strip()
+            for item in chunks
+            if item.get("metadata")
+        ]
+        texts = [t for t in texts if t]
+        if texts:
+            related_context = "\n\n".join(texts[:6])
+    except Exception as e:
+        print(f"[suggestions] retrieval failed: {e}")
+        traceback.print_exc()
+        related_context = ""
+
+    suggestion_prompt = f"""You are a study tutor helping a student decide what to learn next.
+
+Here is what the student has studied so far in this session:
+{history_text}
+
+Here is related material available in their study documents:
+{related_context if related_context else "No additional material found — use subject knowledge."}
+
+Based on what they have already covered (and the depth at which they covered it),
+suggest exactly 3 concepts they should explore next. Prioritise concepts that:
+- Appear in their study material
+- Build logically on what was already discussed
+- Have NOT already been covered in the session above
+
+Return ONLY a valid JSON array, no markdown, no other text:
+[
+  {{
+    "concept": "Short concept name (3-6 words max)",
+    "reason": "One sentence explaining why this follows logically from what was studied."
+  }}
+]"""
+
+    raw = ""
+    try:
+        suggestion_response = groq_client.chat.completions.create(
+            model=suggestion_model,
+            messages=[{"role": "user", "content": suggestion_prompt}],
+            max_tokens=400,
+            temperature=0.7,
+        )
+        raw = suggestion_response.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*", "", raw)
+        raw = re.sub(r"^```\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        suggestions = json.loads(raw)
+        return suggestions[:3]
+    except Exception as e:
+        print(f"[suggestions] JSON parse failed: {e}")
+        print(f"[suggestions] raw output was: {raw}")
+        return []
 
 
 def is_conversational(message: str) -> bool:
